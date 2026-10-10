@@ -1,0 +1,5 @@
+.env
+.venv/
+__pycache__/
+historico/
+.DS_Store

@@ -1,0 +1,21 @@
+# Sobe o WAHA (gateway do WhatsApp) em container. Peça: canal.
+services:
+  waha:
+    image: devlikeapro/waha:arm
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WHATSAPP_HOOK_URL: http://host.docker.internal:8000/webhook
+      WHATSAPP_HOOK_EVENTS: message
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - waha_sessions:/app/.sessions
+
+volumes:
+  waha_sessions:
