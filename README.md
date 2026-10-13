@@ -14,7 +14,7 @@ Um agente de atendimento no WhatsApp que **conversa como gente**: espera o clien
 ![WAHA](https://img.shields.io/badge/WAHA-WhatsApp-25D366?logo=whatsapp&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-WAHA-2496ED?logo=docker&logoColor=white)
 
-**Projeto do curso 1 · Seu Agente no AR Hoje**
+**Projeto do curso 2 · Seu Agente Ligado 24h**
 
 </div>
 
@@ -63,6 +63,21 @@ Pra conversar com o agente só no terminal, sem WhatsApp: `python chat.py`.
 > ⚠️ Use um **número de teste**, nunca o teu pessoal nem o da empresa.
 >
 > 💻 No Mac com chip Apple, o `docker-compose.yml` já usa a imagem `devlikeapro/waha:arm`.
+
+## Rodando na VPS
+
+Pra deixar a Duda no ar 24 horas, numa VPS com [Docker](https://docs.docker.com/engine/install/):
+
+1. **Domínios:** aponta dois subdomínios pro IP da VPS, por exemplo `bot.teudominio.com.br` (a Duda) e `waha.teudominio.com.br` (o painel do WAHA).
+2. **`.env` preenchido** na VPS: as chaves de sempre, mais `DOMINIO`, `DOMINIO_WAHA` e `WHATSAPP_HOOK_HMAC_KEY` (uma chave longa, `openssl rand -hex 32`), com `WAHA_URL=http://waha:3000`.
+3. **Copia o projeto** pra VPS, sem o `.env` do teu computador nem o `historico/`.
+4. **Sobe tudo:**
+
+```bash
+docker compose -f docker-compose.vps.yml up -d --build
+```
+
+O Caddy gera o HTTPS sozinho. Depois é só abrir `https://waha.teudominio.com.br/dashboard`, entrar com o usuário e a senha do `.env` e ler o QR code. O webhook só aceita chamadas assinadas pelo teu WAHA. O passo a passo pra atualizar a VPS está no `CLAUDE.example.md`.
 
 ## Estrutura
 
