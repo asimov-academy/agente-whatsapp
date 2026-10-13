@@ -1,0 +1,17 @@
+# Caddy: recebe o tráfego do domínio, gera o HTTPS sozinho e entrega o webhook pra Duda.
+# O endereço vem da variável DOMINIO (.env).
+{$DOMINIO} {
+	# Só o webhook chega na Duda. O resto (/docs, /openapi.json...) não fica aberto na internet.
+	handle /webhook {
+		reverse_proxy duda:8000
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+}
+
+# Painel (interface) do WAHA. Protegido pelo login do próprio WAHA (usuário e senha do .env).
+{$DOMINIO_WAHA} {
+	reverse_proxy waha:3000
+}

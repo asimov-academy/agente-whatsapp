@@ -1,0 +1,7 @@
+.venv
+__pycache__
+historico
+.env
+.git
+.DS_Store
+.claude

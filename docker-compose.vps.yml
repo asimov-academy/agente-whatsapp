@@ -1,0 +1,50 @@
+# Duda 24 horas na VPS: Caddy (HTTPS) + Duda (código e LLM) + WAHA (canal).
+# Uso: docker compose -f docker-compose.vps.yml up -d
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+      DOMINIO_WAHA: ${DOMINIO_WAHA}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - duda
+
+  duda:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Dentro do Docker o WAHA é o serviço "waha", não o localhost do .env do notebook.
+      WAHA_URL: http://waha:3000
+    volumes:
+      - ./historico:/app/historico
+    depends_on:
+      - waha
+
+  waha:
+    image: devlikeapro/waha
+    restart: unless-stopped
+    ports:
+      # Direto, só na própria VPS (túnel SSH). Pela internet o painel passa pelo Caddy, com HTTPS.
+      - "127.0.0.1:3000:3000"
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WHATSAPP_HOOK_URL: https://${DOMINIO}/webhook
+      WHATSAPP_HOOK_EVENTS: message
+    volumes:
+      - waha_sessions:/app/.sessions
+
+volumes:
+  caddy_data:
+  caddy_config:
+  waha_sessions:
