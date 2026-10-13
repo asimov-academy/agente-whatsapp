@@ -1,9 +1,12 @@
 # Recebe o webhook do WAHA e entrega a mensagem pro buffer. Peça: canal.
+import hashlib
+import hmac
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from app import config  # noqa: F401  (carrega o .env antes do agente)
+from app.config import WHATSAPP_HOOK_HMAC_KEY
 from app.midia import (
     baixar_midia,
     descrever_imagem,
@@ -17,9 +20,26 @@ log = logging.getLogger(__name__)
 
 app = FastAPI()
 
+if not WHATSAPP_HOOK_HMAC_KEY:
+    log.warning("WHATSAPP_HOOK_HMAC_KEY vazia: o webhook aceita qualquer chamada. Só use assim em testes locais.")
+
+
+def _assinatura_valida(corpo: bytes, assinatura_recebida: str | None) -> bool:
+    # O WAHA manda no header X-Webhook-Hmac o HMAC-SHA512 (hex) do corpo cru, com a nossa chave.
+    if not WHATSAPP_HOOK_HMAC_KEY:
+        return True
+    if not assinatura_recebida:
+        return False
+    esperada = hmac.new(WHATSAPP_HOOK_HMAC_KEY.encode(), corpo, hashlib.sha512).hexdigest()
+    return hmac.compare_digest(esperada, assinatura_recebida.strip().lower())
+
 
 @app.post("/webhook")
 async def webhook(request: Request):
+    corpo = await request.body()
+    if not _assinatura_valida(corpo, request.headers.get("x-webhook-hmac")):
+        raise HTTPException(status_code=403, detail="Assinatura inválida")
+
     evento = await request.json()
     if evento.get("event") != "message":
         return {"status": "ignorado"}

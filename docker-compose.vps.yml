@@ -41,6 +41,8 @@ services:
       WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
       WHATSAPP_HOOK_URL: https://${DOMINIO}/webhook
       WHATSAPP_HOOK_EVENTS: message
+      # O WAHA assina cada webhook com essa chave (header X-Webhook-Hmac) e a Duda confere.
+      WHATSAPP_HOOK_HMAC_KEY: ${WHATSAPP_HOOK_HMAC_KEY:?defina WHATSAPP_HOOK_HMAC_KEY no .env}
     volumes:
       - waha_sessions:/app/.sessions
 
