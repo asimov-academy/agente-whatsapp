@@ -1,5 +1,7 @@
 # Guarda e recupera o histórico de conversa de cada contato, em arquivos JSON. Peça: código.
+import asyncio
 import re
+from collections import defaultdict
 from pathlib import Path
 
 from pydantic_ai.messages import (
@@ -13,6 +15,14 @@ from pydantic_ai.messages import (
 
 LIMITE_MENSAGENS = 30
 PASTA_HISTORICO = Path(__file__).resolve().parent.parent / "historico"
+
+
+_travas: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+def trava_do_contato(contato: str) -> asyncio.Lock:
+    """Uma trava por contato: quem lê e grava o histórico dele segura essa trava."""
+    return _travas[contato]
 
 
 def _caminho(contato: str) -> Path:
@@ -49,3 +59,23 @@ def pegar_historico(contato: str) -> list[ModelMessage]:
 def salvar_historico(contato: str, mensagens: list[ModelMessage]) -> None:
     PASTA_HISTORICO.mkdir(exist_ok=True)
     _caminho(contato).write_bytes(ModelMessagesTypeAdapter.dump_json(_limitar(mensagens)))
+
+
+def existe_historico(contato: str) -> bool:
+    return _caminho(contato).exists()
+
+
+def caminho_pausa(contato: str) -> Path:
+    return _caminho(contato).with_suffix(".pausa")
+
+
+def adicionar_ao_historico(contato: str, novas: list[ModelMessage]) -> None:
+    salvar_historico(contato, pegar_historico(contato) + novas)
+
+
+def apagar_historico(contato: str) -> bool:
+    """Apaga a conversa do contato (histórico e pausa). Devolve False se não havia nada."""
+    existia = existe_historico(contato) or caminho_pausa(contato).exists()
+    _caminho(contato).unlink(missing_ok=True)
+    caminho_pausa(contato).unlink(missing_ok=True)
+    return existia

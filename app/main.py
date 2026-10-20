@@ -1,7 +1,9 @@
 # Recebe o webhook do WAHA e entrega a mensagem pro buffer. Peça: canal.
+import asyncio
 import hashlib
 import hmac
 import logging
+from collections import deque
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -14,11 +16,24 @@ from app.midia import (
     nome_do_arquivo_de_audio,
     transcrever_audio,
 )
-from app.ritmo import adicionar_mensagem
+from app.humano import e_joinha, tratar_joinha_da_equipe, tratar_mensagem_da_equipe
+from app.ritmo import (
+    adicionar_mensagem,
+    agendar_leitura,
+    e_comando_reiniciar,
+    reiniciar_em_segundo_plano,
+)
+from app.whatsapp import foi_enviada_pela_duda
 
+logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
+logging.getLogger("app").setLevel(logging.INFO)
 log = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# O WAHA pode mandar o mesmo evento mais de uma vez (message e message.any): conta só uma.
+_ids_vistos: deque[str] = deque(maxlen=1000)
+_tarefas: set[asyncio.Task] = set()
 
 if not WHATSAPP_HOOK_HMAC_KEY:
     log.warning("WHATSAPP_HOOK_HMAC_KEY vazia: o webhook aceita qualquer chamada. Só use assim em testes locais.")
@@ -41,17 +56,34 @@ async def webhook(request: Request):
         raise HTTPException(status_code=403, detail="Assinatura inválida")
 
     evento = await request.json()
-    if evento.get("event") != "message":
+    if evento.get("event") not in ("message", "message.any", "message.reaction"):
         return {"status": "ignorado"}
 
     mensagem = evento.get("payload") or {}
-    contato = mensagem.get("from") or ""
-    texto = (mensagem.get("body") or "").strip()
+    id_da_mensagem = mensagem.get("id") or ""
+    if id_da_mensagem:
+        if id_da_mensagem in _ids_vistos:
+            return {"status": "ignorado"}
+        _ids_vistos.append(id_da_mensagem)
+
+    if evento.get("event") == "message.reaction":
+        return _reacao_da_equipe(mensagem)
 
     if mensagem.get("fromMe"):
+        return _mensagem_do_numero_da_barbearia(mensagem)
+
+    contato = mensagem.get("from") or ""
+    texto = (mensagem.get("body") or "").strip()
+    if _e_grupo_status_ou_broadcast(contato) or not contato:
         return {"status": "ignorado"}
-    if contato.endswith("@g.us") or contato == "status@broadcast" or not contato:
-        return {"status": "ignorado"}
+
+    if not mensagem.get("hasMedia") and e_comando_reiniciar(texto):
+        reiniciar_em_segundo_plano(contato, evento.get("session") or "default")
+        return {"status": "ok"}
+
+    if mensagem.get("hasMedia") or texto:
+        # "Lido" 1 s depois que chega, sem esperar a transcrição de áudio nem o buffer.
+        agendar_leitura(contato, evento.get("session") or "default")
 
     if mensagem.get("hasMedia"):
         midia = mensagem.get("media") or {}
@@ -115,3 +147,62 @@ async def _texto_do_pdf(contato: str, midia: dict, legenda: str) -> str:
     if legenda:
         texto += f"\nLegenda: {legenda}"
     return texto
+
+
+def _e_grupo_status_ou_broadcast(contato: str) -> bool:
+    return contato.endswith(("@g.us", "@broadcast"))
+
+
+def _em_segundo_plano(corrotina) -> None:
+    # O WAHA não espera, e o histórico pode estar em uso pela Duda.
+    tarefa = asyncio.create_task(corrotina)
+    _tarefas.add(tarefa)
+    tarefa.add_done_callback(_tarefas.discard)
+
+
+def _mensagem_do_numero_da_barbearia(mensagem: dict) -> dict:
+    """Mensagem com fromMe. source "api" é a própria Duda (já está no histórico);
+    "app" é alguém da equipe pelo celular."""
+    id_da_mensagem = mensagem.get("id") or ""
+    origem = mensagem.get("source")
+    contato = _contato_da_mensagem_enviada(mensagem)
+    log.info("fromMe: origem=%s, enviada pela Duda=%s", origem, foi_enviada_pela_duda(id_da_mensagem))
+
+    if origem == "api" or foi_enviada_pela_duda(id_da_mensagem):
+        return {"status": "ignorado"}
+    if not contato or _e_grupo_status_ou_broadcast(contato):
+        return {"status": "ignorado"}
+
+    texto = (mensagem.get("body") or "").strip()
+    if not texto and mensagem.get("hasMedia"):
+        texto = "(mandou um áudio, imagem ou arquivo)"
+    if not texto:
+        return {"status": "ignorado"}
+
+    _em_segundo_plano(tratar_mensagem_da_equipe(contato, texto))
+    return {"status": "ok"}
+
+
+def _reacao_da_equipe(mensagem: dict) -> dict:
+    """Um 👍 da equipe (fromMe) em qualquer mensagem da conversa devolve o atendimento pra Duda."""
+    reacao = mensagem.get("reaction") or {}
+    if not mensagem.get("fromMe") or not e_joinha(reacao.get("text") or ""):
+        return {"status": "ignorado"}
+    partes = (reacao.get("messageId") or "").split("_")  # fromMe_chatId_idDaMensagem
+    contato = partes[1] if len(partes) >= 3 else ""
+    if not contato or _e_grupo_status_ou_broadcast(contato):
+        return {"status": "ignorado"}
+    _em_segundo_plano(tratar_joinha_da_equipe(contato))
+    return {"status": "ok"}
+
+
+def _contato_da_mensagem_enviada(mensagem: dict) -> str:
+    """Numa mensagem enviada por nós, o cliente é o destinatário (to), não o remetente (from)."""
+    remetente = mensagem.get("from") or ""
+    id_da_mensagem = mensagem.get("id") or ""
+    partes = id_da_mensagem.split("_")  # fromMe_chatId_idDaMensagem
+    do_id = partes[1] if len(partes) >= 3 else ""
+    for candidato in (mensagem.get("to") or "", do_id):
+        if candidato and candidato != remetente:
+            return candidato
+    return ""

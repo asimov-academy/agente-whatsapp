@@ -11,7 +11,9 @@ services:
       WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME}
       WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
       WHATSAPP_HOOK_URL: http://host.docker.internal:8000/webhook
-      WHATSAPP_HOOK_EVENTS: message
+      # message.any traz também o que a equipe responde pelo celular (fromMe). Só ele, sem o message:
+      # com os dois a mensagem do cliente chegaria duas vezes. message.reaction traz o 👍 da equipe.
+      WHATSAPP_HOOK_EVENTS: message.any,message.reaction
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
